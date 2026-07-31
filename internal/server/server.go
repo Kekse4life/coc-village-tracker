@@ -20,6 +20,7 @@ import (
 	"github.com/you/coc-progress/internal/analyze"
 	"github.com/you/coc-progress/internal/auth"
 	"github.com/you/coc-progress/internal/catalog"
+	"github.com/you/coc-progress/internal/cocapi"
 	"github.com/you/coc-progress/internal/feature"
 	"github.com/you/coc-progress/internal/pending"
 	"github.com/you/coc-progress/internal/snapshot"
@@ -82,6 +83,11 @@ type Config struct {
 	// InitialSnapshotPaths, local mode only, seeds the store at startup -
 	// the -snapshot flag, one village per path.
 	InitialSnapshotPaths []string
+	// CocAPI backs the Lookup page (/api/lookup/*) - a stateless, accountless
+	// preview against Supercell's public API, unrelated to the export-based
+	// tracker and available unconditionally in both modes. Nil means the
+	// dev mock - New fills it in the same way it does Store/Pending.
+	CocAPI cocapi.Client
 }
 
 type api struct {
@@ -99,6 +105,9 @@ func New(cfg Config, mux *http.ServeMux) {
 	if cfg.Pending == nil {
 		cfg.Pending = pending.NewMemoryStore()
 	}
+	if cfg.CocAPI == nil {
+		cfg.CocAPI = cocapi.New("")
+	}
 	s := &api{cfg: cfg}
 	for _, path := range cfg.InitialSnapshotPaths {
 		if path == "" {
@@ -115,6 +124,8 @@ func New(cfg Config, mux *http.ServeMux) {
 	mux.HandleFunc("/api/catalog", s.handleCatalog)
 	mux.HandleFunc("/api/history", s.handleHistory)
 	mux.HandleFunc("/api/features", s.handleFeatures)
+	mux.HandleFunc("/api/lookup/player", s.handleLookupPlayer)
+	mux.HandleFunc("/api/lookup/clan", s.handleLookupClan)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 
 	if cfg.Hosted {
@@ -745,6 +756,50 @@ func (s *api) featureUnlocked(r *http.Request, key string) bool {
 func (s *api) handleCatalog(w http.ResponseWriter, r *http.Request) {
 	s.cors(w, r)
 	writeJSON(w, s.cfg.Catalog)
+}
+
+// handleLookupPlayer is the Lookup page's player mode - a live, stateless
+// preview against Supercell's public API (or the dev mock - see
+// cocapi.New). Registered in both modes: this needs no account of its own,
+// so it is not gated by Hosted the way villages/history/pending are.
+func (s *api) handleLookupPlayer(w http.ResponseWriter, r *http.Request) {
+	s.cors(w, r)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	tag := r.URL.Query().Get("tag")
+	if tag == "" {
+		httpError(w, http.StatusBadRequest, "?tag= is required.")
+		return
+	}
+	p, err := s.cfg.CocAPI.Player(r.Context(), tag)
+	if err != nil {
+		httpError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, p)
+}
+
+// handleLookupClan is the Lookup page's clan mode - roster plus recent Raid
+// Weekend history. See handleLookupPlayer for why this needs no account.
+func (s *api) handleLookupClan(w http.ResponseWriter, r *http.Request) {
+	s.cors(w, r)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	tag := r.URL.Query().Get("tag")
+	if tag == "" {
+		httpError(w, http.StatusBadRequest, "?tag= is required.")
+		return
+	}
+	c, err := s.cfg.CocAPI.Clan(r.Context(), tag)
+	if err != nil {
+		httpError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, c)
 }
 
 func (s *api) handleHistory(w http.ResponseWriter, r *http.Request) {

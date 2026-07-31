@@ -3,6 +3,7 @@ import { Hero, Progress, Plan, History, Icon, VillagePicker, Reminder, useNow, u
 import { ThemePicker, useTheme, FEATURE_KEY as THEMES_KEY } from './features/themes/index.js'
 import { FEATURE_KEY as BUILD_NOW_KEY } from './features/build-now/index.js'
 import { AdminBoard } from './features/admin/index.js'
+import { LookupPage } from './features/lookup/index.js'
 import { useFeatures } from './useFeatures.js'
 import { DevSignIn } from './DevSignIn.jsx'
 
@@ -15,6 +16,7 @@ const BASE_TABS = [
   { key: 'plan', label: 'Plan' },
   { key: 'progress', label: 'Progress' },
   { key: 'history', label: 'History' },
+  { key: 'lookup', label: 'Lookup' },
 ]
 
 function reportURLFor(tag) {
@@ -360,6 +362,7 @@ export default function App() {
       )}
       {tab === 'progress' && <Progress villages={report.villages} />}
       {tab === 'history' && <History enabled={history.enabled} changeLog={history.changeLog} mismatches={mismatches} />}
+      {tab === 'lookup' && <LookupPage />}
       {tab === 'admin' && <AdminBoard />}
 
       <div className="notes">

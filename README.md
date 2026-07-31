@@ -77,6 +77,8 @@ For frontend work with hot reload, run the Go server on `:8080` and
 | `/api/history`   | GET    | Change log between the two most recent snapshots (`?tag=`) |
 | `/api/catalog`   | GET    | The ID lookup table                               |
 | `/api/features`  | GET    | Which gated capabilities (`themes`, `build_now`) the caller currently has - always both, locally |
+| `/api/lookup/player` | GET | A live player preview via Supercell's public API (`?tag=`) - see "Lookup" |
+| `/api/lookup/clan`   | GET | A live clan roster + Raid Weekend history (`?tag=`) - see "Lookup" |
 | `/healthz`       | GET    | Liveness                                          |
 
 ```bash
@@ -93,6 +95,32 @@ means *finished*.
 
 In local mode the picker is always there. In hosted mode, showing it (and
 the Build Now button) depends on the signed-in account's role - see below.
+
+## Lookup
+
+A live, stateless preview against Supercell's public API - paste a player
+or clan tag, see what it says right now. Unrelated to the export-based
+tracker: no account needed in either mode, and nothing looked up here is
+saved anywhere. Player mode shows Town Hall level, trophies, hero levels
+and lifetime Clan Capital Gold contribution (a glimpse, not a replacement
+for a full export - walls, traps and Builder Base detail only come from
+one). Clan mode shows the roster and recent Raid Weekend history.
+
+**Without `COC_API_TOKEN` set, this shows clearly-labelled sample data** -
+every response the frontend renders carries a `mock` flag when it isn't
+real, and the sample-data notice is not a tooltip, it's always visible.
+Get a token at [developer.clashofclans.com](https://developer.clashofclans.com/)
+and set `COC_API_TOKEN` to go live - nothing else needs to change.
+
+Supercell's API enforces a per-token IP allowlist: a token is registered
+against one fixed source IP and rejects requests from any other. A single
+long-running local binary has a stable-enough IP for this to work; a Vercel
+deployment does not have one static outbound IP by default, so this is
+realistically a local-only feature today without extra infrastructure
+(a fixed-IP egress proxy) this project does not set up. There is also no
+confirmed way to get per-district Clan Capital building detail from this
+API at all - only points, contributions and league - so the Lookup page
+says that plainly rather than promising more than the data source has.
 
 ## Running it hosted (Vercel + Postgres + accounts)
 
@@ -158,6 +186,7 @@ binary in one step.
 | `CRON_SECRET`             | in hosted mode | Bearer token the daily prune cron presents to `/api/cron/prune` |
 | `ADMIN_EMAIL`             | to ever have an admin | Email promoted to the `admin` role on sign-in - see "Roles and feature flags" |
 | `DEV_LOGIN`               | no, local dev only | `1` adds a no-OAuth sign-in box - only takes effect against a `localhost`/`127.0.0.1` `BASE_URL`, ignored otherwise |
+| `COC_API_TOKEN`           | no | Supercell public-API token for the Lookup page - unset means clearly-labelled sample data, in either mode |
 | `PORT`                    | set by Vercel | Overrides `-addr`'s default listen port |
 
 ### Roles and feature flags
@@ -200,10 +229,11 @@ export is a few kilobytes).
 
 The frontend's village switcher (backed by `/api/villages` and `?tag=`) is
 mode-agnostic and works against a signed-in session the same way it does
-locally. What hosted mode is still missing is a sign-in screen in the
-frontend itself - today a session cookie has to come from hitting
-`/api/auth/github` or `/api/auth/google` directly, with no button in the UI
-for it yet.
+locally. What hosted mode is still missing is a sign-in screen for the real
+OAuth providers - today a session cookie from GitHub or Google has to come
+from hitting `/api/auth/github` or `/api/auth/google` directly, with no
+button in the UI for either yet (`DEV_LOGIN`'s sign-in box is the one
+exception, and only ever shows up locally).
 
 ## How the numbers are worked out
 
@@ -262,11 +292,14 @@ internal/analyze/           Completion, the bill, next-up suggestions, missing b
 internal/server/            The API, mode-aware (local vs hosted), quotas, CORS, admin board (+ tests)
 internal/auth/               GitHub/Google OAuth and session cookies, hosted mode only (+ tests)
 internal/feature/            Role-gated feature flags (themes, build_now), hosted mode only
+internal/cocapi/             Supercell public-API client for the Lookup page, real or dev mock (+ tests)
 internal/store/              Snapshot persistence: memory, file (-history), Postgres, all + tests
 cmd/catalogen/               Builds catalog.json from ClashKing's static_data.json + manifest.json (+ tests)
 scripts/fetch-gamedata.sh    Downloads that data, regenerates the catalog
-web/                         React frontend (Vite) — Now / Plan / Progress / History tabs (+ Admin for
-                             admins), six themes; web/src/features/{core,themes,build-now,admin}/
+scripts/dev-run.sh           Sources .env.local and runs the binary, for local hosted-mode dev
+web/                         React frontend (Vite) — Now / Plan / Progress / History / Lookup tabs
+                             (+ Admin for admins), six themes;
+                             web/src/features/{core,themes,build-now,admin,lookup}/
 data/catalog.json            Generated lookup table
 vercel.json, .env.example    Hosted deployment config
 ```

@@ -26,6 +26,7 @@ import (
 
 	"github.com/you/coc-progress/internal/auth"
 	"github.com/you/coc-progress/internal/catalog"
+	"github.com/you/coc-progress/internal/cocapi"
 	"github.com/you/coc-progress/internal/server"
 	"github.com/you/coc-progress/internal/store/file"
 	"github.com/you/coc-progress/internal/store/postgres"
@@ -50,11 +51,20 @@ func main() {
 	}
 	log.Printf("catalog: %d entries, generated %s", len(cat.Entries), cat.GeneratedAt)
 
+	// The Lookup page's only switch: a token means the real Supercell API,
+	// no token means clearly-marked sample data. Mode-agnostic, so read once
+	// here rather than inside each of runLocal/runHosted.
+	cocToken := os.Getenv("COC_API_TOKEN")
+	if cocToken == "" {
+		log.Print("COC_API_TOKEN not set: the Lookup page will show sample data - see README.md")
+	}
+	cocClient := cocapi.New(cocToken)
+
 	mux := http.NewServeMux()
 	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
-		runHosted(mux, cat, dsn)
+		runHosted(mux, cat, dsn, cocClient)
 	} else {
-		runLocal(mux, cat, *snapPath, *historyDir)
+		runLocal(mux, cat, *snapPath, *historyDir, cocClient)
 	}
 
 	site, err := fs.Sub(embeddedWeb, "web/dist")
@@ -82,8 +92,8 @@ func main() {
 	}
 }
 
-func runLocal(mux *http.ServeMux, cat *catalog.Catalog, snapPath, historyDir string) {
-	cfg := server.Config{Catalog: cat, InitialSnapshotPaths: splitPaths(snapPath)}
+func runLocal(mux *http.ServeMux, cat *catalog.Catalog, snapPath, historyDir string, cocClient cocapi.Client) {
+	cfg := server.Config{Catalog: cat, InitialSnapshotPaths: splitPaths(snapPath), CocAPI: cocClient}
 	if historyDir != "" {
 		fh, err := file.New(historyDir)
 		if err != nil {
@@ -112,7 +122,7 @@ func splitPaths(s string) []string {
 	return out
 }
 
-func runHosted(mux *http.ServeMux, cat *catalog.Catalog, dsn string) {
+func runHosted(mux *http.ServeMux, cat *catalog.Catalog, dsn string, cocClient cocapi.Client) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -161,6 +171,7 @@ func runHosted(mux *http.ServeMux, cat *catalog.Catalog, dsn string) {
 		BaseURL:    baseURL,
 		CronSecret: os.Getenv("CRON_SECRET"),
 		DevLogin:   devLogin,
+		CocAPI:     cocClient,
 	}, mux)
 }
 

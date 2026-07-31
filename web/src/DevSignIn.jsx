@@ -14,7 +14,7 @@ export function DevSignIn() {
   }
 
   return (
-    <form className="dev-sign-in" onSubmit={signIn}>
+    <form className="inline-form" onSubmit={signIn}>
       <span>Dev sign-in (local only)</span>
       <input
         type="email"
@@ -23,7 +23,7 @@ export function DevSignIn() {
         onChange={(e) => setEmail(e.target.value)}
         required
       />
-      <button type="submit" className="dev-sign-in-btn">Sign in</button>
+      <button type="submit" className="inline-form-btn">Sign in</button>
     </form>
   )
 }

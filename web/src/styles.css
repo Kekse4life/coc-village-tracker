@@ -234,7 +234,9 @@ button {
   padding-top: 24px;
 }
 
-.dev-sign-in {
+/* A small pill-shaped input+button form - the dev sign-in box and the
+   Lookup page's tag form both use this. */
+.inline-form {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -242,7 +244,8 @@ button {
   color: var(--faint);
 }
 
-.dev-sign-in input {
+.inline-form input,
+.inline-form select {
   font-size: 13px;
   padding: 5px 10px;
   border: 1px solid var(--rule);
@@ -251,7 +254,7 @@ button {
   color: var(--ink);
 }
 
-.dev-sign-in-btn {
+.inline-form-btn {
   font-size: 13px;
   padding: 5px 14px;
   border-radius: 999px;
@@ -260,9 +263,37 @@ button {
   color: var(--ink);
 }
 
-.dev-sign-in-btn:hover {
+.inline-form-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.sample-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+
+.lookup-result {
+  margin-top: 16px;
+}
+
+.lookup-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.lookup-head b {
+  font-family: var(--display);
+  font-size: 16px;
 }
 
 /* ---------- reminder banner ---------- */

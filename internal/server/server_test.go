@@ -59,6 +59,44 @@ func newLocalMux(t *testing.T, historyDir string) *http.ServeMux {
 	return mux
 }
 
+// The Lookup page needs no account and no COC_API_TOKEN to work at all -
+// New defaults an unset CocAPI to the mock client, in both modes, the same
+// way an unset Store/Pending gets a default.
+func TestLookupPlayerAndClanReturnMockDataByDefault(t *testing.T) {
+	mux := newLocalMux(t, "")
+
+	pRec := httptest.NewRecorder()
+	mux.ServeHTTP(pRec, httptest.NewRequest(http.MethodGet, "/api/lookup/player?tag=%23ABC", nil))
+	if pRec.Code != http.StatusOK {
+		t.Fatalf("player status = %d, body = %s", pRec.Code, pRec.Body.String())
+	}
+	var p map[string]any
+	json.Unmarshal(pRec.Body.Bytes(), &p)
+	if p["mock"] != true {
+		t.Errorf("player mock = %v, want true with no COC_API_TOKEN configured", p["mock"])
+	}
+
+	cRec := httptest.NewRecorder()
+	mux.ServeHTTP(cRec, httptest.NewRequest(http.MethodGet, "/api/lookup/clan?tag=%23XYZ", nil))
+	if cRec.Code != http.StatusOK {
+		t.Fatalf("clan status = %d, body = %s", cRec.Code, cRec.Body.String())
+	}
+	var c map[string]any
+	json.Unmarshal(cRec.Body.Bytes(), &c)
+	if c["mock"] != true {
+		t.Errorf("clan mock = %v, want true with no COC_API_TOKEN configured", c["mock"])
+	}
+}
+
+func TestLookupRequiresTag(t *testing.T) {
+	mux := newLocalMux(t, "")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/lookup/player", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 with no ?tag=", rec.Code)
+	}
+}
+
 // erroringFeatureStore always fails, standing in for a real Postgres error
 // (a dropped connection, a missing table) without needing one.
 type erroringFeatureStore struct{}
