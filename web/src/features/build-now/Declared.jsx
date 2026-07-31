@@ -1,6 +1,6 @@
 import React from 'react'
-import { Icon } from './Icon.jsx'
-import { daysText } from './format.js'
+import { Icon } from '../core/Icon.jsx'
+import { daysText } from '../core/format.js'
 
 /**
  * Every upgrade declared by hand ("build now") that a fresh export hasn't

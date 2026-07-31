@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { Icon } from './Icon.jsx'
 import { resourceText, daysText } from './format.js'
+import { BuildNowButton } from '../build-now/BuildNowButton.jsx'
 
 function totalCost(s) {
   return Object.values(s.cost || {}).reduce((a, b) => a + b, 0)
@@ -63,9 +64,7 @@ export function NextUp({ items, onBuildNow }) {
               </span>
               <span className="next-time">{s.seconds ? daysText(s.seconds) : 'instant'}</span>
               {onBuildNow && (
-                <button className="build-now-btn" disabled={busyKey === key} onClick={() => buildNow(s, key)}>
-                  {busyKey === key ? '…' : 'Build now'}
-                </button>
+                <BuildNowButton busy={busyKey === key} onClick={() => buildNow(s, key)} />
               )}
             </div>
           )

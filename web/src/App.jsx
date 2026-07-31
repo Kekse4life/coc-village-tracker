@@ -1,21 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Hero } from './Timeline.jsx'
-import { Progress } from './Progress.jsx'
-import { Plan } from './Plan.jsx'
-import { History } from './History.jsx'
-import { Icon } from './Icon.jsx'
-import { ThemePicker } from './ThemePicker.jsx'
-import { VillagePicker } from './VillagePicker.jsx'
-import { Reminder } from './Reminder.jsx'
-import { useNow } from './useNow.js'
-import { useTheme } from './useTheme.js'
-import { untilText, clockText, agoText, LANE_LABELS } from './format.js'
+import { Hero, Progress, Plan, History, Icon, VillagePicker, Reminder, useNow, untilText, clockText, agoText, LANE_LABELS } from './features/core/index.js'
+import { ThemePicker, useTheme, FEATURE_KEY as THEMES_KEY } from './features/themes/index.js'
+import { FEATURE_KEY as BUILD_NOW_KEY } from './features/build-now/index.js'
+import { AdminBoard } from './features/admin/index.js'
+import { useFeatures } from './useFeatures.js'
 
 const STALE_AFTER_MS = 6 * 3600 * 1000
 const REMIND_AFTER_MS = 24 * 3600 * 1000
 const TAG_STORAGE_KEY = 'coc-progress-tag'
 const REMIND_SNOOZE_PREFIX = 'coc-progress-remind-'
-const TABS = [
+const BASE_TABS = [
   { key: 'now', label: 'Now' },
   { key: 'plan', label: 'Plan' },
   { key: 'progress', label: 'Progress' },
@@ -47,6 +41,9 @@ export default function App() {
   const fileInput = useRef(null)
   const now = useNow()
   const { theme, choose: chooseTheme } = useTheme()
+  const { unlocked, user } = useFeatures()
+  const isAdmin = user?.role === 'admin'
+  const tabs = isAdmin ? [...BASE_TABS, { key: 'admin', label: 'Admin' }] : BASE_TABS
 
   useEffect(() => {
     if (!tag) {
@@ -232,7 +229,7 @@ export default function App() {
     return (
       <div className="shell" onDragOver={(e) => (e.preventDefault(), setOver(true))} onDragLeave={() => setOver(false)} onDrop={onDrop}>
         <div className="theme-bar">
-          <ThemePicker theme={theme} onChange={chooseTheme} />
+          {unlocked.has(THEMES_KEY) && <ThemePicker theme={theme} onChange={chooseTheme} />}
         </div>
         <div className="empty">
           <h1>How maxed is your village, and what lands next?</h1>
@@ -268,7 +265,7 @@ export default function App() {
         </span>
         <span className="top-right">
           <span className="captured">captured {agoText(report.capturedAt, now)}</span>
-          <ThemePicker theme={theme} onChange={chooseTheme} />
+          {unlocked.has(THEMES_KEY) && <ThemePicker theme={theme} onChange={chooseTheme} />}
           <button className="load" onClick={() => fileInput.current?.click()}>
             {busy ? 'Reading…' : 'Load export'}
           </button>
@@ -287,7 +284,7 @@ export default function App() {
       )}
 
       <nav className="tabs top-nav" role="tablist">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button key={t.key} className="tab" role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}>
             {t.label}
           </button>
@@ -347,9 +344,12 @@ export default function App() {
         </>
       )}
 
-      {tab === 'plan' && <Plan report={report} onBuildNow={buildNow} onCancelPending={cancelPending} />}
+      {tab === 'plan' && (
+        <Plan report={report} onBuildNow={unlocked.has(BUILD_NOW_KEY) ? buildNow : undefined} onCancelPending={cancelPending} />
+      )}
       {tab === 'progress' && <Progress villages={report.villages} />}
       {tab === 'history' && <History enabled={history.enabled} changeLog={history.changeLog} mismatches={mismatches} />}
+      {tab === 'admin' && <AdminBoard />}
 
       <div className="notes">
         {stale && (
