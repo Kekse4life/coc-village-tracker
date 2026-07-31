@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/you/coc-progress/internal/auth"
 	"github.com/you/coc-progress/internal/catalog"
+	"github.com/you/coc-progress/internal/feature"
 	"github.com/you/coc-progress/internal/store/file"
 )
 
@@ -54,6 +57,25 @@ func newLocalMux(t *testing.T, historyDir string) *http.ServeMux {
 	}
 	New(cfg, mux)
 	return mux
+}
+
+// erroringFeatureStore always fails, standing in for a real Postgres error
+// (a dropped connection, a missing table) without needing one.
+type erroringFeatureStore struct{}
+
+func (erroringFeatureStore) RequiredRole(ctx context.Context, key string) (string, error) {
+	return "", errors.New("boom")
+}
+
+// featureUnlocked must fail closed on a Store error, never open - it once
+// didn't, in postPending specifically, letting a plain user through as if
+// Build Now were unlocked the moment RequiredRole returned any error at all.
+func TestFeatureUnlockedFailsClosedOnStoreError(t *testing.T) {
+	s := &api{cfg: Config{Hosted: true, Features: erroringFeatureStore{}}}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	if s.featureUnlocked(req, feature.BuildNow) {
+		t.Error("featureUnlocked = true on a Store error, want false (fail closed)")
+	}
 }
 
 func TestLocalReportGetBeforeAnyPostIs404(t *testing.T) {

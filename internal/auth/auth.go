@@ -289,15 +289,20 @@ func fetchGitHubUser(ctx context.Context, client *http.Client) (providerUser, er
 
 func fetchGoogleUser(ctx context.Context, client *http.Client) (providerUser, error) {
 	var profile struct {
-		ID      string `json:"id"`
-		Email   string `json:"email"`
-		Name    string `json:"name"`
-		Picture string `json:"picture"`
+		ID            string `json:"id"`
+		Email         string `json:"email"`
+		VerifiedEmail bool   `json:"verified_email"`
+		Name          string `json:"name"`
+		Picture       string `json:"picture"`
 	}
 	if err := getJSON(ctx, client, "https://www.googleapis.com/oauth2/v2/userinfo", &profile); err != nil {
 		return providerUser{}, err
 	}
-	return providerUser{id: profile.ID, email: profile.Email, name: profile.Name, avatar: profile.Picture}, nil
+	email := profile.Email
+	if !profile.VerifiedEmail {
+		email = "" // an unverified email must never be trusted for ADMIN_EMAIL matching
+	}
+	return providerUser{id: profile.ID, email: email, name: profile.Name, avatar: profile.Picture}, nil
 }
 
 func getJSON(ctx context.Context, client *http.Client, url string, v any) error {

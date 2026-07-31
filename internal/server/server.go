@@ -562,12 +562,9 @@ func (s *api) postPending(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if s.cfg.Hosted && s.cfg.Features != nil {
-		required, err := s.cfg.Features.RequiredRole(r.Context(), feature.BuildNow)
-		if err == nil && !feature.Unlocked(s.roleOf(r), required) {
-			httpError(w, http.StatusForbidden, "Build Now isn't available on your account yet - ask an admin to unlock it.")
-			return
-		}
+	if !s.featureUnlocked(r, feature.BuildNow) {
+		httpError(w, http.StatusForbidden, "Build Now isn't available on your account yet - ask an admin to unlock it.")
+		return
 	}
 
 	var req struct {
@@ -699,16 +696,9 @@ func (s *api) handleFeatures(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.cfg.Hosted || s.cfg.Features == nil {
-		writeJSON(w, map[string]any{"unlocked": feature.Keys()})
-		return
-	}
-
-	role := s.roleOf(r)
 	unlocked := []string{}
 	for _, key := range feature.Keys() {
-		req, err := s.cfg.Features.RequiredRole(r.Context(), key)
-		if err == nil && feature.Unlocked(role, req) {
+		if s.featureUnlocked(r, key) {
 			unlocked = append(unlocked, key)
 		}
 	}
@@ -722,6 +712,26 @@ func (s *api) roleOf(r *http.Request) string {
 		return u.Role
 	}
 	return feature.RoleUser
+}
+
+// featureUnlocked is the one place that decides whether the caller may use a
+// gated feature - both handleFeatures (a read) and postPending (a write) go
+// through it so they can never disagree the way they once did. Local mode,
+// or hosted mode with no Features store configured, is always unlocked -
+// there is nothing to gate against. Otherwise it fails closed: any error
+// resolving the required role is treated as locked, not unlocked, and
+// logged rather than swallowed - postPending guards a real write and must
+// never fail open just because a lookup errored.
+func (s *api) featureUnlocked(r *http.Request, key string) bool {
+	if !s.cfg.Hosted || s.cfg.Features == nil {
+		return true
+	}
+	required, err := s.cfg.Features.RequiredRole(r.Context(), key)
+	if err != nil {
+		log.Printf("feature %q: resolve required role: %v", key, err)
+		return false
+	}
+	return feature.Unlocked(s.roleOf(r), required)
 }
 
 func (s *api) handleCatalog(w http.ResponseWriter, r *http.Request) {
