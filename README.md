@@ -120,6 +120,16 @@ Decide which mode fits before you point it at a real village.
    runs a plain `net/http` server on `$PORT`, so local and hosted mode are the
    same binary) and registers the daily prune cron.
 
+### Running hosted mode locally, for development
+
+`docker-compose.yml` starts a throwaway Postgres on `localhost:15432` -
+`docker compose up -d`. Its port and credentials match `TEST_DATABASE_URL`'s
+own convention below, so the same container backs both the Postgres-backed
+test suite and running the real binary in hosted mode. Copy `.env.example`
+to `.env.local`, point `DATABASE_URL` at that container, register an OAuth
+app with a `localhost` callback URL, and set `ADMIN_EMAIL` to whichever
+account you'll sign in with - see the env var table below for all of it.
+
 ### Env vars
 
 | Variable                | Required | Purpose                                              |

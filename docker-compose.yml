@@ -1,0 +1,29 @@
+# Local development database - not used in production. Vercel/hosted
+# deployments point DATABASE_URL at a real provider (Neon, etc.) instead.
+#
+#   docker compose up -d      # start it
+#   docker compose down       # stop it (add -v to also wipe the data volume)
+#
+# Port and credentials match the TEST_DATABASE_URL convention the test suite
+# already documents (internal/server/server_hosted_test.go), so the same
+# running container backs both `go test -run Hosted` and running the actual
+# binary in hosted mode locally.
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: cocprogress
+    ports:
+      - "15432:5432"
+    volumes:
+      - coc-progress-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  coc-progress-db:
