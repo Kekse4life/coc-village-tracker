@@ -6,6 +6,7 @@ import { AdminBoard } from './features/admin/index.js'
 import { LookupPage } from './features/lookup/index.js'
 import { useFeatures } from './useFeatures.js'
 import { DevSignIn } from './DevSignIn.jsx'
+import { DigestToggle } from './DigestToggle.jsx'
 
 const STALE_AFTER_MS = 6 * 3600 * 1000
 const REMIND_AFTER_MS = 24 * 3600 * 1000
@@ -277,6 +278,7 @@ export default function App() {
         </span>
         <span className="top-right">
           {devLogin && !user && <DevSignIn />}
+          {hosted && user && <DigestToggle />}
           <span className="captured">captured {agoText(report.capturedAt, now)}</span>
           {unlocked.has(THEMES_KEY) && <ThemePicker theme={theme} onChange={chooseTheme} />}
           <button className="load" onClick={() => fileInput.current?.click()}>

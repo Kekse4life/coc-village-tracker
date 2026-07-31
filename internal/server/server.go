@@ -132,8 +132,10 @@ func New(cfg Config, mux *http.ServeMux) {
 		mux.HandleFunc("/api/config", s.handleConfig)
 		mux.HandleFunc("/api/me", s.handleMe)
 		mux.HandleFunc("/api/admin/users", s.handleAdminUsers)
+		mux.HandleFunc("/api/me/digest-opt-in", s.handleDigestOptIn)
 		mux.HandleFunc("/api/auth/logout", s.handleLogout)
 		mux.HandleFunc("/api/cron/prune", s.handlePrune)
+		mux.HandleFunc("/api/cron/digest", s.handleCronDigest)
 		if cfg.DevLogin {
 			mux.HandleFunc("/api/auth/dev", s.handleDevLogin)
 		}

@@ -268,6 +268,15 @@ button {
   color: var(--accent);
 }
 
+.digest-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--faint);
+  cursor: pointer;
+}
+
 .sample-badge {
   display: inline-block;
   font-family: var(--mono);

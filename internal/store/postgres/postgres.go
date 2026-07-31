@@ -263,6 +263,63 @@ func (s *Store) CountAdmins(ctx context.Context) (int, error) {
 	return n, err
 }
 
+// DigestOptIn reports whether userID currently wants the landed-timer email
+// digest - off for everyone by default.
+func (s *Store) DigestOptIn(ctx context.Context, userID int64) (bool, error) {
+	var v bool
+	err := s.pool.QueryRow(ctx, `SELECT email_digest_opt_in FROM users WHERE id = $1`, userID).Scan(&v)
+	return v, err
+}
+
+// SetDigestOptIn flips the preference. Turning it on always resets
+// digest_checked_at to now - opting in means "tell me what lands from here
+// on," not "catch me up on everything since I signed up."
+func (s *Store) SetDigestOptIn(ctx context.Context, userID int64, optIn bool) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE users SET email_digest_opt_in = $1,
+			digest_checked_at = CASE WHEN $1 THEN now() ELSE digest_checked_at END
+		WHERE id = $2`, optIn, userID)
+	return err
+}
+
+// DigestUser is one opted-in account the digest cron needs to check.
+type DigestUser struct {
+	UserID    int64
+	Email     string
+	CheckedAt time.Time
+}
+
+// DigestCandidates lists every opted-in user, for the digest cron to walk.
+func (s *Store) DigestCandidates(ctx context.Context) ([]DigestUser, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id, email, digest_checked_at FROM users WHERE email_digest_opt_in`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []DigestUser
+	for rows.Next() {
+		var d DigestUser
+		var email *string
+		if err := rows.Scan(&d.UserID, &email, &d.CheckedAt); err != nil {
+			return nil, err
+		}
+		if email != nil {
+			d.Email = *email
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// SetDigestCheckedAt advances userID's checked-from point after the digest
+// cron has processed them, so the next run does not re-report the same
+// landed jobs.
+func (s *Store) SetDigestCheckedAt(ctx context.Context, userID int64, at time.Time) error {
+	_, err := s.pool.Exec(ctx, `UPDATE users SET digest_checked_at = $1 WHERE id = $2`, at, userID)
+	return err
+}
+
 // VillageCount and SnapshotCount back the open-signup quotas: 5 villages per
 // user, 100 snapshots per village.
 func (s *Store) VillageCount(ctx context.Context, userID int64) (int, error) {

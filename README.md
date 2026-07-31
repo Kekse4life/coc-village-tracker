@@ -220,7 +220,9 @@ role, so every gate in `internal/feature` treats "no accounts" the same as
 | `/api/auth/github`, `/google` | GET    | Start that provider's OAuth flow                 |
 | `/api/auth/{provider}/callback` | GET  | OAuth redirect target                            |
 | `/api/auth/logout`            | POST   | Revoke the current session                       |
+| `/api/me/digest-opt-in`       | GET, POST | Read or flip your own email-digest preference - `{"optIn":true\|false}` |
 | `/api/cron/prune`             | GET    | Runs the retention prune; needs `Authorization: Bearer $CRON_SECRET` |
+| `/api/cron/digest`            | GET    | Runs the email digest (see below); needs `Authorization: Bearer $CRON_SECRET` |
 
 `/api/report` and `/api/history` require a session cookie in hosted mode.
 Open signup means everyone gets the same guards: 5 villages per account, 100
@@ -234,6 +236,19 @@ OAuth providers - today a session cookie from GitHub or Google has to come
 from hitting `/api/auth/github` or `/api/auth/google` directly, with no
 button in the UI for either yet (`DEV_LOGIN`'s sign-in box is the one
 exception, and only ever shows up locally).
+
+### Email digest
+
+An opt-in checkbox (top right, once signed in) for a digest when a tracked
+upgrade lands. `GET /api/cron/digest` walks every opted-in account, finds
+jobs that landed since that account's own last check, and - for now - just
+logs what it would have sent, one line per account, rather than actually
+emailing anyone. **No real email provider is wired up yet**, and this cron
+is deliberately *not* registered in `vercel.json` - hitting the endpoint by
+hand (with the same bearer token `/api/cron/prune` uses) is how to see it
+work today. Opting in always resets the checked-from point to now, so
+turning it on means "tell me what lands from here on," never a backlog
+dump of everything since sign-up.
 
 ## How the numbers are worked out
 

@@ -396,6 +396,106 @@ func TestHostedAdminCannotSelfDemoteAsSoleAdmin(t *testing.T) {
 	}
 }
 
+func TestHostedDigestOptInTogglesAndDefaultsFalse(t *testing.T) {
+	pg := hostedTestPool(t)
+	mux := hostedMux(pg)
+
+	req := signedInRequest(t, pg, http.MethodGet, "/api/me/digest-opt-in", "")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	var got map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &got)
+	if got["optIn"] != false {
+		t.Errorf("optIn = %v, want false by default", got["optIn"])
+	}
+
+	onReq := httptest.NewRequest(http.MethodPost, "/api/me/digest-opt-in", strings.NewReader(`{"optIn":true}`))
+	onReq.AddCookie(req.Cookies()[0])
+	onRec := httptest.NewRecorder()
+	mux.ServeHTTP(onRec, onReq)
+	var got2 map[string]any
+	json.Unmarshal(onRec.Body.Bytes(), &got2)
+	if got2["optIn"] != true {
+		t.Errorf("optIn after toggling on = %v, want true", got2["optIn"])
+	}
+
+	checkReq := httptest.NewRequest(http.MethodGet, "/api/me/digest-opt-in", nil)
+	checkReq.AddCookie(req.Cookies()[0])
+	checkRec := httptest.NewRecorder()
+	mux.ServeHTTP(checkRec, checkReq)
+	var got3 map[string]any
+	json.Unmarshal(checkRec.Body.Bytes(), &got3)
+	if got3["optIn"] != true {
+		t.Errorf("optIn on re-read = %v, want true (persisted)", got3["optIn"])
+	}
+}
+
+func TestHostedCronDigestRequiresSecret(t *testing.T) {
+	pg := hostedTestPool(t)
+	mux := hostedMux(pg)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/cron/digest", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401 with no bearer token", rec.Code)
+	}
+}
+
+// The end-to-end point of the whole feature: a job whose timer landed
+// after the user's last check is found and logged once, and a second run
+// right after finds nothing new - checked_at has already advanced past it.
+func TestHostedCronDigestLogsLandedJobsSinceLastCheck(t *testing.T) {
+	pg := hostedTestPool(t)
+	mux := hostedMux(pg)
+
+	// timestamp 1700000000 (2023) + a 3600s timer finishes a little later
+	// in 2023 - long before "now" in this test, but that is fine, since
+	// checked_at gets backdated to just before that finish time below.
+	body := `{"tag":"#DIGEST","timestamp":1700000000,"buildings":[{"data":1000001,"lvl":2,"cnt":1,"timer":3600}]}`
+	postReq := signedInRequest(t, pg, http.MethodPost, "/api/report", body)
+	postRec := httptest.NewRecorder()
+	mux.ServeHTTP(postRec, postReq)
+	if postRec.Code != http.StatusOK {
+		t.Fatalf("seed export: %d %s", postRec.Code, postRec.Body.String())
+	}
+	hash := sha256.Sum256([]byte(postReq.Cookies()[0].Value))
+	uid, _, _, _, _, err := pg.UserBySessionToken(context.Background(), hash[:])
+	if err != nil || uid == 0 {
+		t.Fatalf("resolve session: %v", err)
+	}
+
+	if err := pg.SetDigestOptIn(context.Background(), uid, true); err != nil {
+		t.Fatalf("opt in: %v", err)
+	}
+	// Backdating past the opt-in's own now() reset, to just before the
+	// building's finish time - the window the digest is supposed to catch.
+	backdated := time.Unix(1700000000+3600-10, 0)
+	if _, err := pg.Pool().Exec(context.Background(), `UPDATE users SET digest_checked_at = $1 WHERE id = $2`, backdated, uid); err != nil {
+		t.Fatalf("backdate checked_at: %v", err)
+	}
+
+	cronReq := httptest.NewRequest(http.MethodGet, "/api/cron/digest", nil)
+	cronReq.Header.Set("Authorization", "Bearer test-secret")
+	cronRec := httptest.NewRecorder()
+	mux.ServeHTTP(cronRec, cronReq)
+	if cronRec.Code != http.StatusOK {
+		t.Fatalf("digest status = %d, body = %s", cronRec.Code, cronRec.Body.String())
+	}
+	var got map[string]any
+	json.Unmarshal(cronRec.Body.Bytes(), &got)
+	if got["digestsLogged"] != float64(1) {
+		t.Errorf("digestsLogged = %v, want 1", got["digestsLogged"])
+	}
+
+	cronRec2 := httptest.NewRecorder()
+	mux.ServeHTTP(cronRec2, cronReq)
+	var got2 map[string]any
+	json.Unmarshal(cronRec2.Body.Bytes(), &got2)
+	if got2["digestsLogged"] != float64(0) {
+		t.Errorf("second run digestsLogged = %v, want 0 (checked_at already advanced past this landing)", got2["digestsLogged"])
+	}
+}
+
 func TestHostedLogoutRevokesSession(t *testing.T) {
 	pg := hostedTestPool(t)
 	mux := hostedMux(pg)

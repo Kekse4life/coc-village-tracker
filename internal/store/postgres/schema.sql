@@ -58,3 +58,11 @@ INSERT INTO feature_flags (key, required_role) VALUES
     ('themes', 'admin'),
     ('build_now', 'admin')
 ON CONFLICT (key) DO NOTHING;
+
+-- Opt-in email digest when a tracked timer lands - off by default for
+-- everyone. digest_checked_at is where the next run starts looking from;
+-- turning the digest on always resets it to now (see SetDigestOptIn), so
+-- opting in only ever means "tell me what lands from here on," never a
+-- backlog dump of everything since account creation.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_digest_opt_in BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_checked_at TIMESTAMPTZ NOT NULL DEFAULT now();
