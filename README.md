@@ -71,6 +71,7 @@ For frontend work with hot reload, run the Go server on `:8080` and
 | `/api/pending`   | DELETE | Cancel a declared upgrade (`?tag=&id=`) |
 | `/api/history`   | GET    | Change log between the two most recent snapshots (`?tag=`) |
 | `/api/catalog`   | GET    | The ID lookup table                               |
+| `/api/features`  | GET    | Which gated capabilities (`themes`, `build_now`) the caller currently has - always both, locally |
 | `/healthz`       | GET    | Liveness                                          |
 
 ```bash
@@ -84,6 +85,9 @@ Night, Elixir, Dark Elixir, Gold, and Builder Base. The choice is saved in the
 browser and otherwise follows your OS's light/dark setting. Every theme keeps
 the one rule that actually matters here: colour means *still to do*, plain ink
 means *finished*.
+
+In local mode the picker is always there. In hosted mode, showing it (and
+the Build Now button) depends on the signed-in account's role - see below.
 
 ## Running it hosted (Vercel + Postgres + accounts)
 
@@ -125,14 +129,37 @@ Decide which mode fits before you point it at a real village.
 | `GITHUB_CLIENT_ID` / `_SECRET` | one of GitHub or Google | GitHub OAuth app credentials |
 | `GOOGLE_CLIENT_ID` / `_SECRET` | one of GitHub or Google | Google OAuth app credentials |
 | `CRON_SECRET`             | in hosted mode | Bearer token the daily prune cron presents to `/api/cron/prune` |
+| `ADMIN_EMAIL`             | to ever have an admin | Email promoted to the `admin` role on sign-in - see "Roles and feature flags" |
 | `PORT`                    | set by Vercel | Overrides `-addr`'s default listen port |
+
+### Roles and feature flags
+
+Hosted mode has two roles: `user` (everyone, by default) and `admin`. The
+only way to become admin is for `ADMIN_EMAIL` to match the email your OAuth
+provider hands back at sign-in - there is no other bootstrap. From the admin
+board (a new tab in the frontend once you're signed in as one) an admin can
+promote or demote anyone else.
+
+Two capabilities are gated by role rather than being open to every account:
+themes and Build Now. Both default to admin-only (`internal/store/postgres/schema.sql`'s
+`feature_flags` table), so a freshly signed-up account gets the core
+tracker - the timeline, completion, cost-to-finish, history - and nothing
+else until an admin promotes it. `GET /api/features` reports which of the
+two the caller currently has; the frontend hides the theme picker and the
+Build Now button rather than showing either as merely disabled.
+
+**None of this touches local mode.** Local mode has no accounts to hold a
+role, so every gate in `internal/feature` treats "no accounts" the same as
+"fully unlocked" - themes and Build Now work exactly as they always have.
 
 ### Hosted-mode API additions
 
 | Endpoint                    | Method | Purpose                                        |
 | ---------------------------- | ------ | ------------------------------------------------ |
 | `/api/config`                 | GET    | Which sign-in providers are configured           |
-| `/api/me`                     | GET    | The signed-in user, or `{"user":null}`           |
+| `/api/me`                     | GET    | The signed-in user (now including `role`), or `{"user":null}` |
+| `/api/admin/users`            | GET    | List every user, their role, and their village count (admin only) |
+| `/api/admin/users`            | POST   | Change one user's role - `{"userId":…,"role":"admin"\|"user"}` (admin only) |
 | `/api/auth/github`, `/google` | GET    | Start that provider's OAuth flow                 |
 | `/api/auth/{provider}/callback` | GET  | OAuth redirect target                            |
 | `/api/auth/logout`            | POST   | Revoke the current session                       |
@@ -204,12 +231,14 @@ internal/snapshot/          Export parsing
 internal/catalog/           ID lookup, per-hall ceilings, cost/time, icon URLs
 internal/analyze/           Completion, the bill, next-up suggestions, missing buildings,
                              next-hall preview, strength, balance, and the change-log diff (+ tests)
-internal/server/            The API, mode-aware (local vs hosted), quotas, CORS (+ tests)
+internal/server/            The API, mode-aware (local vs hosted), quotas, CORS, admin board (+ tests)
 internal/auth/               GitHub/Google OAuth and session cookies, hosted mode only (+ tests)
+internal/feature/            Role-gated feature flags (themes, build_now), hosted mode only
 internal/store/              Snapshot persistence: memory, file (-history), Postgres, all + tests
 cmd/catalogen/               Builds catalog.json from ClashKing's static_data.json + manifest.json (+ tests)
 scripts/fetch-gamedata.sh    Downloads that data, regenerates the catalog
-web/                         React frontend (Vite) — Now / Plan / Progress / History tabs, six themes
+web/                         React frontend (Vite) — Now / Plan / Progress / History tabs (+ Admin for
+                             admins), six themes; web/src/features/{core,themes,build-now,admin}/
 data/catalog.json            Generated lookup table
 vercel.json, .env.example    Hosted deployment config
 ```
