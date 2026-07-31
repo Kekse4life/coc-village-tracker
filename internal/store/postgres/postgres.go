@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/you/coc-progress/internal/feature"
 	"github.com/you/coc-progress/internal/store"
 )
 
@@ -25,6 +26,7 @@ var schema string
 const migrationLockKey = 727202601
 
 var _ store.Store = (*Store)(nil)
+var _ feature.Store = (*Store)(nil)
 
 type Store struct {
 	pool *pgxpool.Pool
@@ -162,18 +164,18 @@ func (s *Store) CreateSession(ctx context.Context, userID int64, tokenHash []byt
 // it, only if the session has not expired. A zero userID with a nil error
 // means "no such session" - callers should treat that as unauthenticated,
 // not as a server error.
-func (s *Store) UserBySessionToken(ctx context.Context, tokenHash []byte) (userID int64, email, name, avatarURL string, err error) {
+func (s *Store) UserBySessionToken(ctx context.Context, tokenHash []byte) (userID int64, email, name, avatarURL, role string, err error) {
 	var e, n, a *string
 	err = s.pool.QueryRow(ctx, `
-		SELECT u.id, u.email, u.name, u.avatar_url
+		SELECT u.id, u.email, u.name, u.avatar_url, u.role
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
-		WHERE s.token_hash = $1 AND s.expires_at > now()`, tokenHash).Scan(&userID, &e, &n, &a)
+		WHERE s.token_hash = $1 AND s.expires_at > now()`, tokenHash).Scan(&userID, &e, &n, &a, &role)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, "", "", "", nil
+			return 0, "", "", "", "", nil
 		}
-		return 0, "", "", "", err
+		return 0, "", "", "", "", err
 	}
 	if e != nil {
 		email = *e
@@ -184,13 +186,81 @@ func (s *Store) UserBySessionToken(ctx context.Context, tokenHash []byte) (userI
 	if a != nil {
 		avatarURL = *a
 	}
-	return userID, email, name, avatarURL, nil
+	return userID, email, name, avatarURL, role, nil
 }
 
 // DeleteSessionByToken revokes a session, e.g. on logout.
 func (s *Store) DeleteSessionByToken(ctx context.Context, tokenHash []byte) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE token_hash = $1`, tokenHash)
 	return err
+}
+
+// SetRole overwrites userID's role - either auth bootstrapping ADMIN_EMAIL
+// on sign-in, or an admin promoting/demoting someone from the admin board.
+func (s *Store) SetRole(ctx context.Context, userID int64, role string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE users SET role = $1 WHERE id = $2`, role, userID)
+	return err
+}
+
+// RequiredRole looks up which role key currently requires. A key that is
+// somehow not seeded (should not happen - see schema.sql) fails closed to
+// admin-only rather than silently unlocking.
+func (s *Store) RequiredRole(ctx context.Context, key string) (string, error) {
+	var role string
+	err := s.pool.QueryRow(ctx, `SELECT required_role FROM feature_flags WHERE key = $1`, key).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return feature.RoleAdmin, nil
+	}
+	return role, err
+}
+
+// AdminUser is one row of the admin user-management board.
+type AdminUser struct {
+	ID        int64     `json:"id"`
+	Provider  string    `json:"provider"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"createdAt"`
+	Villages  int       `json:"villages"`
+}
+
+// ListUsers returns every user for the admin board, oldest first.
+func (s *Store) ListUsers(ctx context.Context) ([]AdminUser, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT u.id, u.provider, u.email, u.name, u.role, u.created_at,
+		       (SELECT count(*) FROM villages v WHERE v.user_id = u.id)
+		FROM users u
+		ORDER BY u.created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []AdminUser
+	for rows.Next() {
+		var u AdminUser
+		var email, name *string
+		if err := rows.Scan(&u.ID, &u.Provider, &email, &name, &u.Role, &u.CreatedAt, &u.Villages); err != nil {
+			return nil, err
+		}
+		if email != nil {
+			u.Email = *email
+		}
+		if name != nil {
+			u.Name = *name
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// CountAdmins is how the admin board guards against demoting the last admin
+// to zero.
+func (s *Store) CountAdmins(ctx context.Context) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE role = $1`, feature.RoleAdmin).Scan(&n)
+	return n, err
 }
 
 // VillageCount and SnapshotCount back the open-signup quotas: 5 villages per

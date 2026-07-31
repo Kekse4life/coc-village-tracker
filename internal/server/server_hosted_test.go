@@ -75,10 +75,28 @@ func signedInRequest(t *testing.T, pg *postgres.Store, method, target, body stri
 	return req
 }
 
+// adminRequest is signedInRequest's admin-role counterpart, for testing the
+// admin board and role-gated features without a live OAuth account. Returns
+// the created user's ID too, since several tests need it to target
+// themselves or another user in a request body.
+func adminRequest(t *testing.T, pg *postgres.Store, method, target, body string) (*http.Request, int64) {
+	t.Helper()
+	req := signedInRequest(t, pg, method, target, body)
+	hash := sha256.Sum256([]byte(req.Cookies()[0].Value))
+	uid, _, _, _, _, err := pg.UserBySessionToken(context.Background(), hash[:])
+	if err != nil || uid == 0 {
+		t.Fatalf("resolve just-created session: %v", err)
+	}
+	if err := pg.SetRole(context.Background(), uid, "admin"); err != nil {
+		t.Fatalf("set role: %v", err)
+	}
+	return req, uid
+}
+
 func hostedMux(pg *postgres.Store) *http.ServeMux {
 	mux := http.NewServeMux()
-	authSvc := auth.New(pg, "https://coc-progress.example.com", "gh-id", "gh-secret", "", "")
-	New(Config{Catalog: testCatalog(), Store: pg, Auth: authSvc, Hosted: true, BaseURL: "https://coc-progress.example.com", CronSecret: "test-secret"}, mux)
+	authSvc := auth.New(pg, "https://coc-progress.example.com", "gh-id", "gh-secret", "", "", "")
+	New(Config{Catalog: testCatalog(), Store: pg, Features: pg, Auth: authSvc, Hosted: true, BaseURL: "https://coc-progress.example.com", CronSecret: "test-secret"}, mux)
 	return mux
 }
 
@@ -183,6 +201,146 @@ func TestHostedCronPruneRequiresSecret(t *testing.T) {
 	mux.ServeHTTP(rec3, req3)
 	if rec3.Code != http.StatusOK {
 		t.Errorf("correct bearer token: status = %d, want 200, body = %s", rec3.Code, rec3.Body.String())
+	}
+}
+
+// Both gated flags seed as admin-required (schema.sql), so a plain
+// signed-in user must see neither unlocked.
+func TestHostedFeaturesDefaultLockedForPlainUser(t *testing.T) {
+	pg := hostedTestPool(t)
+	mux := hostedMux(pg)
+
+	req := signedInRequest(t, pg, http.MethodGet, "/api/features", "")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	var got map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &got)
+	if unlocked, _ := got["unlocked"].([]any); len(unlocked) != 0 {
+		t.Errorf("unlocked = %v, want none for a plain user", got["unlocked"])
+	}
+}
+
+func TestHostedFeaturesUnlockedForAdmin(t *testing.T) {
+	pg := hostedTestPool(t)
+	mux := hostedMux(pg)
+
+	req, _ := adminRequest(t, pg, http.MethodGet, "/api/features", "")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	var got map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &got)
+	if unlocked, _ := got["unlocked"].([]any); len(unlocked) != 2 {
+		t.Errorf("unlocked = %v, want both themes and build_now for an admin", got["unlocked"])
+	}
+}
+
+// The end-to-end point of gating Build Now: a plain user (build_now
+// defaults to admin-required) must be turned away before ever reaching
+// pending.Apply, not just have the feature hidden client-side.
+func TestHostedPendingRejectedWithoutBuildNowRole(t *testing.T) {
+	pg := hostedTestPool(t)
+	mux := hostedMux(pg)
+
+	postReq := signedInRequest(t, pg, http.MethodPost, "/api/report", validExport)
+	postRec := httptest.NewRecorder()
+	mux.ServeHTTP(postRec, postReq)
+	if postRec.Code != http.StatusOK {
+		t.Fatalf("seed export: %d %s", postRec.Code, postRec.Body.String())
+	}
+
+	pendingReq := httptest.NewRequest(http.MethodPost, "/api/pending", strings.NewReader(`{"itemId":1000001,"village":"home","fromLevel":2}`))
+	pendingReq.AddCookie(postReq.Cookies()[0])
+	pendingRec := httptest.NewRecorder()
+	mux.ServeHTTP(pendingRec, pendingReq)
+	if pendingRec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, body = %s, want 403 - build_now defaults to admin-required", pendingRec.Code, pendingRec.Body.String())
+	}
+}
+
+func TestHostedAdminCanListAndPromoteUsers(t *testing.T) {
+	pg := hostedTestPool(t)
+	mux := hostedMux(pg)
+
+	adminReq, _ := adminRequest(t, pg, http.MethodGet, "/api/admin/users", "")
+	plainReq := signedInRequest(t, pg, http.MethodGet, "/api/report", "") // seeds a second, plain user
+	mux.ServeHTTP(httptest.NewRecorder(), plainReq)                      // 404 (no village yet) is fine - only the user row matters here
+
+	listRec := httptest.NewRecorder()
+	mux.ServeHTTP(listRec, adminReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listRec.Code, listRec.Body.String())
+	}
+	var got map[string]any
+	json.Unmarshal(listRec.Body.Bytes(), &got)
+	users, _ := got["users"].([]any)
+	if len(users) != 2 {
+		t.Fatalf("users = %+v, want 2 (the admin and the plain user)", got["users"])
+	}
+
+	var plainUserID float64
+	for _, u := range users {
+		if m := u.(map[string]any); m["role"] == "user" {
+			plainUserID = m["id"].(float64)
+		}
+	}
+	if plainUserID == 0 {
+		t.Fatalf("could not find the plain user in %+v", users)
+	}
+
+	promoteReq := httptest.NewRequest(http.MethodPost, "/api/admin/users",
+		strings.NewReader(fmt.Sprintf(`{"userId":%d,"role":"admin"}`, int64(plainUserID))))
+	promoteReq.AddCookie(adminReq.Cookies()[0])
+	promoteRec := httptest.NewRecorder()
+	mux.ServeHTTP(promoteRec, promoteReq)
+	if promoteRec.Code != http.StatusOK {
+		t.Fatalf("promote status = %d, body = %s", promoteRec.Code, promoteRec.Body.String())
+	}
+	var got2 map[string]any
+	json.Unmarshal(promoteRec.Body.Bytes(), &got2)
+	users2, _ := got2["users"].([]any)
+	admins := 0
+	for _, u := range users2 {
+		if u.(map[string]any)["role"] == "admin" {
+			admins++
+		}
+	}
+	if admins != 2 {
+		t.Errorf("admins after promotion = %d, want 2", admins)
+	}
+}
+
+func TestHostedNonAdminCannotAccessAdminBoard(t *testing.T) {
+	pg := hostedTestPool(t)
+	mux := hostedMux(pg)
+
+	req := signedInRequest(t, pg, http.MethodGet, "/api/admin/users", "")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403 for a signed-in non-admin", rec.Code)
+	}
+
+	anonRec := httptest.NewRecorder()
+	mux.ServeHTTP(anonRec, httptest.NewRequest(http.MethodGet, "/api/admin/users", nil))
+	if anonRec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401 with no session at all", anonRec.Code)
+	}
+}
+
+// The one accident this guard exists for: the sole admin locking everyone
+// out of the board by demoting themself.
+func TestHostedAdminCannotSelfDemoteAsSoleAdmin(t *testing.T) {
+	pg := hostedTestPool(t)
+	mux := hostedMux(pg)
+
+	seedReq, adminID := adminRequest(t, pg, http.MethodGet, "/api/admin/users", "")
+	demoteReq := httptest.NewRequest(http.MethodPost, "/api/admin/users",
+		strings.NewReader(fmt.Sprintf(`{"userId":%d,"role":"user"}`, adminID)))
+	demoteReq.AddCookie(seedReq.Cookies()[0])
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, demoteReq)
+	if rec.Code != http.StatusConflict {
+		t.Errorf("status = %d, body = %s, want 409 - the sole admin must not be able to demote themself", rec.Code, rec.Body.String())
 	}
 }
 

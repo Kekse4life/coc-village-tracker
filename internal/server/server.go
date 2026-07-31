@@ -20,6 +20,7 @@ import (
 	"github.com/you/coc-progress/internal/analyze"
 	"github.com/you/coc-progress/internal/auth"
 	"github.com/you/coc-progress/internal/catalog"
+	"github.com/you/coc-progress/internal/feature"
 	"github.com/you/coc-progress/internal/pending"
 	"github.com/you/coc-progress/internal/snapshot"
 	"github.com/you/coc-progress/internal/store"
@@ -60,6 +61,10 @@ type Config struct {
 	// village's latest snapshot on the way into analysis. Nil means an
 	// in-memory default - New fills it in the same way it does Store.
 	Pending pending.Store
+	// Features resolves which role each gated flag (internal/feature)
+	// currently requires. Nil means "everything unlocked" - local mode
+	// never sets this, since it has no accounts or roles to gate by.
+	Features feature.Store
 	// Auth is nil in local mode, where there are no accounts at all.
 	Auth   *auth.Service
 	Hosted bool
@@ -104,11 +109,13 @@ func New(cfg Config, mux *http.ServeMux) {
 	mux.HandleFunc("/api/pending", s.handlePending)
 	mux.HandleFunc("/api/catalog", s.handleCatalog)
 	mux.HandleFunc("/api/history", s.handleHistory)
+	mux.HandleFunc("/api/features", s.handleFeatures)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 
 	if cfg.Hosted {
 		mux.HandleFunc("/api/config", s.handleConfig)
 		mux.HandleFunc("/api/me", s.handleMe)
+		mux.HandleFunc("/api/admin/users", s.handleAdminUsers)
 		mux.HandleFunc("/api/auth/logout", s.handleLogout)
 		mux.HandleFunc("/api/cron/prune", s.handlePrune)
 		// Both providers are always routed, configured or not: an
@@ -555,6 +562,13 @@ func (s *api) postPending(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if s.cfg.Hosted && s.cfg.Features != nil {
+		required, err := s.cfg.Features.RequiredRole(r.Context(), feature.BuildNow)
+		if err == nil && !feature.Unlocked(s.roleOf(r), required) {
+			httpError(w, http.StatusForbidden, "Build Now isn't available on your account yet - ask an admin to unlock it.")
+			return
+		}
+	}
 
 	var req struct {
 		ItemID    int    `json:"itemId"`
@@ -670,6 +684,44 @@ func (s *api) checkQuota(ctx context.Context, userID int64, tag string) error {
 		return fmt.Errorf("you've hit today's upload limit (%d) - try again tomorrow", maxUploadsPerDay)
 	}
 	return nil
+}
+
+// handleFeatures reports which gated capabilities (internal/feature) the
+// caller currently has, so the frontend knows whether to show the theme
+// picker or the Build Now button. Registered in both modes: local mode
+// always returns every key unlocked (no accounts, nothing to gate against);
+// hosted mode resolves them from the signed-in user's role, treating nobody
+// signed in as the lowest role rather than an error.
+func (s *api) handleFeatures(w http.ResponseWriter, r *http.Request) {
+	s.cors(w, r)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if !s.cfg.Hosted || s.cfg.Features == nil {
+		writeJSON(w, map[string]any{"unlocked": feature.Keys()})
+		return
+	}
+
+	role := s.roleOf(r)
+	unlocked := []string{}
+	for _, key := range feature.Keys() {
+		req, err := s.cfg.Features.RequiredRole(r.Context(), key)
+		if err == nil && feature.Unlocked(role, req) {
+			unlocked = append(unlocked, key)
+		}
+	}
+	writeJSON(w, map[string]any{"unlocked": unlocked})
+}
+
+// roleOf is the signed-in caller's role, or feature.RoleUser (the lowest)
+// if nobody is signed in - hosted mode only, and only meaningful there.
+func (s *api) roleOf(r *http.Request) string {
+	if u := s.cfg.Auth.User(r); u != nil {
+		return u.Role
+	}
+	return feature.RoleUser
 }
 
 func (s *api) handleCatalog(w http.ResponseWriter, r *http.Request) {

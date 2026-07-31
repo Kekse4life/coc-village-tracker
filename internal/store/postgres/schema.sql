@@ -42,3 +42,19 @@ CREATE TABLE IF NOT EXISTS snapshots (
 );
 
 CREATE INDEX IF NOT EXISTS snapshots_village_captured_idx ON snapshots (village_id, captured_at DESC);
+
+-- "user" (default, every signed-in account) or "admin" (see ADMIN_EMAIL).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user';
+
+-- Which role a gated capability (see internal/feature) currently requires.
+-- Both start admin-only: a plain user gets the core tracker and nothing
+-- else until an admin promotes them from the admin board.
+CREATE TABLE IF NOT EXISTS feature_flags (
+    key TEXT PRIMARY KEY,
+    required_role TEXT NOT NULL DEFAULT 'admin'
+);
+
+INSERT INTO feature_flags (key, required_role) VALUES
+    ('themes', 'admin'),
+    ('build_now', 'admin')
+ON CONFLICT (key) DO NOTHING;

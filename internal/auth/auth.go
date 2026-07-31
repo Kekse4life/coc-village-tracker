@@ -15,18 +15,22 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
 	ghendpoint "golang.org/x/oauth2/github"
+
+	"github.com/you/coc-progress/internal/feature"
 )
 
 // User is the identity behind a request.
 type User struct {
-	ID     int64
-	Name   string
-	Email  string
-	Avatar string
+	ID     int64  `json:"id"`
+	Name   string `json:"name"`
+	Email  string `json:"email"`
+	Avatar string `json:"avatar"`
+	Role   string `json:"role"`
 }
 
 // Store is the persistence auth needs. *postgres.Store satisfies this
@@ -35,8 +39,13 @@ type User struct {
 type Store interface {
 	UpsertUser(ctx context.Context, provider, providerID, email, name, avatarURL string) (userID int64, err error)
 	CreateSession(ctx context.Context, userID int64, tokenHash []byte, expiresAt time.Time) error
-	UserBySessionToken(ctx context.Context, tokenHash []byte) (userID int64, email, name, avatarURL string, err error)
+	UserBySessionToken(ctx context.Context, tokenHash []byte) (userID int64, email, name, avatarURL, role string, err error)
 	DeleteSessionByToken(ctx context.Context, tokenHash []byte) error
+	// SetRole overwrites a user's role - used here only to bootstrap
+	// adminEmail to feature.RoleAdmin on sign-in. Promoting or demoting
+	// anyone else is the admin board's job (internal/server/admin.go), not
+	// auth's.
+	SetRole(ctx context.Context, userID int64, role string) error
 }
 
 const (
@@ -58,16 +67,18 @@ type provider struct {
 // Service wires OAuth against whichever of GitHub and Google have
 // credentials configured, plus session issuing and verification.
 type Service struct {
-	store     Store
-	secure    bool // false only for a plain-http baseURL, so local https-less dev still works
-	providers map[string]provider
+	store      Store
+	secure     bool // false only for a plain-http baseURL, so local https-less dev still works
+	providers  map[string]provider
+	adminEmail string
 }
 
 // New builds a Service. Any provider whose ID or secret is empty is simply
 // left out of Providers() rather than erroring - a deployment can enable
-// just one of the two.
-func New(st Store, baseURL, githubID, githubSecret, googleID, googleSecret string) *Service {
-	s := &Service{store: st, secure: len(baseURL) >= 8 && baseURL[:8] == "https://", providers: map[string]provider{}}
+// just one of the two. adminEmail, if set, is promoted to feature.RoleAdmin
+// the moment it signs in - see Callback.
+func New(st Store, baseURL, githubID, githubSecret, googleID, googleSecret, adminEmail string) *Service {
+	s := &Service{store: st, secure: len(baseURL) >= 8 && baseURL[:8] == "https://", providers: map[string]provider{}, adminEmail: adminEmail}
 
 	if githubID != "" && githubSecret != "" {
 		s.providers["github"] = provider{
@@ -166,10 +177,25 @@ func (s *Service) Callback(w http.ResponseWriter, r *http.Request, providerName 
 	if err != nil {
 		return nil, fmt.Errorf("save user: %w", err)
 	}
+	// The only way anyone ever becomes admin: their email matches the
+	// configured ADMIN_EMAIL at sign-in time. There is no other path yet -
+	// see internal/server/admin.go for how an admin promotes anyone else.
+	if isAdminEmail(s.adminEmail, pu.email) {
+		if err := s.store.SetRole(r.Context(), uid, feature.RoleAdmin); err != nil {
+			return nil, fmt.Errorf("bootstrap admin role: %w", err)
+		}
+	}
 	if err := s.issueSession(w, r.Context(), uid); err != nil {
 		return nil, fmt.Errorf("issue session: %w", err)
 	}
 	return &User{ID: uid, Name: pu.name, Email: pu.email, Avatar: pu.avatar}, nil
+}
+
+// isAdminEmail is its own function so the matching rule (case-insensitive,
+// both sides required) is unit-testable without faking a whole OAuth round
+// trip through Callback.
+func isAdminEmail(configuredAdminEmail, userEmail string) bool {
+	return configuredAdminEmail != "" && userEmail != "" && strings.EqualFold(configuredAdminEmail, userEmail)
 }
 
 func (s *Service) issueSession(w http.ResponseWriter, ctx context.Context, userID int64) error {
@@ -198,11 +224,11 @@ func (s *Service) User(r *http.Request) *User {
 		return nil
 	}
 	hash := sha256.Sum256([]byte(cookie.Value))
-	uid, email, name, avatar, err := s.store.UserBySessionToken(r.Context(), hash[:])
+	uid, email, name, avatar, role, err := s.store.UserBySessionToken(r.Context(), hash[:])
 	if err != nil || uid == 0 {
 		return nil
 	}
-	return &User{ID: uid, Email: email, Name: name, Avatar: avatar}
+	return &User{ID: uid, Email: email, Name: name, Avatar: avatar, Role: role}
 }
 
 // Logout revokes the current session, if any, and clears its cookie.

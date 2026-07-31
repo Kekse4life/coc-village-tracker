@@ -20,7 +20,7 @@ import (
 // backing store - safe for tests that never present a session cookie, since
 // Service.User returns nil on a missing cookie before ever touching the store.
 func noProviderAuth() *auth.Service {
-	return auth.New(nil, "https://coc-progress.example.com", "", "", "", "")
+	return auth.New(nil, "https://coc-progress.example.com", "", "", "", "", "")
 }
 
 func testCatalog() *catalog.Catalog {
@@ -447,6 +447,23 @@ func TestLocalForgetVillageRemovesItFromTheSwitcher(t *testing.T) {
 	}
 }
 
+// Local mode has no accounts or roles at all - every gated feature must
+// stay fully unlocked, exactly as it behaved before any of this existed.
+func TestLocalFeaturesAlwaysUnlocked(t *testing.T) {
+	mux := newLocalMux(t, "")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/features", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var got map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &got)
+	unlocked, _ := got["unlocked"].([]any)
+	if len(unlocked) != 2 {
+		t.Errorf("unlocked = %v, want both themes and build_now unlocked with no accounts to gate by", got["unlocked"])
+	}
+}
+
 func TestLocalCorsAllowsAnyOrigin(t *testing.T) {
 	mux := newLocalMux(t, "")
 	rec := httptest.NewRecorder()
@@ -482,7 +499,7 @@ func TestHostedRoutesRequireAuth(t *testing.T) {
 // same mux (reproduced here with a stand-in) and returned as a 200 HTML shell.
 func TestUnconfiguredProviderReturns400NotTheSPAShell(t *testing.T) {
 	mux := http.NewServeMux()
-	authSvc := auth.New(nil, "https://coc-progress.example.com", "gh-id", "gh-secret", "", "") // only github configured
+	authSvc := auth.New(nil, "https://coc-progress.example.com", "gh-id", "gh-secret", "", "", "") // only github configured
 	New(Config{Catalog: testCatalog(), Hosted: true, BaseURL: "https://coc-progress.example.com", Auth: authSvc}, mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("<!doctype html><html>the SPA shell</html>"))

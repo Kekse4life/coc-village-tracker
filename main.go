@@ -129,18 +129,24 @@ func runHosted(mux *http.ServeMux, cat *catalog.Catalog, dsn string) {
 	if baseURL == "" {
 		log.Fatal("BASE_URL must be set when DATABASE_URL is set (hosted mode)")
 	}
+	adminEmail := os.Getenv("ADMIN_EMAIL")
 	authSvc := auth.New(pg, baseURL,
 		os.Getenv("GITHUB_CLIENT_ID"), os.Getenv("GITHUB_CLIENT_SECRET"),
-		os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET"))
+		os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET"),
+		adminEmail)
 	if len(authSvc.Providers()) == 0 {
 		log.Fatal("hosted mode needs at least one of GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET or GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET set")
 	}
 	log.Printf("hosted mode: sign-in via %v", authSvc.Providers())
+	if adminEmail == "" {
+		log.Print("ADMIN_EMAIL not set - nobody will be promoted to admin on sign-in")
+	}
 
 	server.New(server.Config{
 		Catalog:    cat,
 		Store:      pg,
 		Durable:    true,
+		Features:   pg,
 		Auth:       authSvc,
 		Hosted:     true,
 		BaseURL:    baseURL,
