@@ -1,6 +1,11 @@
 # Village Report
 
-A dashboard for a Clash of Clans village export. It answers four questions:
+A dashboard for a Clash of Clans village export. No ads, ever, in either
+mode - your data is never sold or shared. The catalog re-syncs from a
+single script after a game update, same day, so new content is never stuck
+behind an "Item #1000093" placeholder for long.
+
+It answers four questions:
 
 - **What lands next?** Every upgrade in flight, on a live 48-hour timeline, with
   builder and laboratory capacity.

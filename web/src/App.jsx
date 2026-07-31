@@ -42,7 +42,7 @@ export default function App() {
   const fileInput = useRef(null)
   const now = useNow()
   const { theme, choose: chooseTheme } = useTheme()
-  const { unlocked, user, devLogin } = useFeatures()
+  const { unlocked, user, devLogin, hosted } = useFeatures()
   const isAdmin = user?.role === 'admin'
   const tabs = isAdmin ? [...BASE_TABS, { key: 'admin', label: 'Admin' }] : BASE_TABS
 
@@ -235,10 +235,18 @@ export default function App() {
         </div>
         <div className="empty">
           <h1>How maxed is your village, and what lands next?</h1>
-          <p>
-            Drop a village export below. It is read in memory and never written to disk. Nothing
-            is sent anywhere except the server running on this machine.
-          </p>
+          {hosted ? (
+            <p>
+              Sign in, then drop a village export below. No ads, ever, and nothing here is sold or
+              shared - exports are stored only to show your own history back to you across devices.
+            </p>
+          ) : (
+            <p>
+              Drop a village export below. It is read in memory and never written to disk. Nothing
+              is sent anywhere except the server running on this machine - and there are no ads,
+              ever, in either mode.
+            </p>
+          )}
           <div className="dropzone" data-over={over} onClick={() => fileInput.current?.click()} role="button" tabIndex={0}>
             {busy ? 'Reading…' : 'Drop the JSON here, or click to choose a file'}
           </div>

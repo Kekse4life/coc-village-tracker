@@ -12,6 +12,7 @@ export function useFeatures() {
   const [unlocked, setUnlocked] = useState(new Set())
   const [user, setUser] = useState(null)
   const [devLogin, setDevLogin] = useState(false)
+  const [hosted, setHosted] = useState(false)
 
   useEffect(() => {
     fetch('/api/features')
@@ -24,9 +25,12 @@ export function useFeatures() {
       .catch(() => {})
     fetch('/api/config')
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => setDevLogin(!!(data && data.devLogin)))
+      .then((data) => {
+        setDevLogin(!!(data && data.devLogin))
+        setHosted(!!(data && data.hosted))
+      })
       .catch(() => {})
   }, [])
 
-  return { unlocked, user, devLogin }
+  return { unlocked, user, devLogin, hosted }
 }
