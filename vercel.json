@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "go",
+  "buildCommand": "cd web && npm ci && npm run build && cd .. && go build -o \"$VERCEL_OUTPUT_FILE\" .",
+  "crons": [{ "path": "/api/cron/prune", "schedule": "0 3 * * *" }]
+}
