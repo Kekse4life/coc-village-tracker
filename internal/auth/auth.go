@@ -198,6 +198,35 @@ func isAdminEmail(configuredAdminEmail, userEmail string) bool {
 	return configuredAdminEmail != "" && userEmail != "" && strings.EqualFold(configuredAdminEmail, userEmail)
 }
 
+// DevLogin signs in as an arbitrary email with no OAuth exchange at all -
+// local development only. Auth itself does not decide when that is safe;
+// the caller (internal/server, gated on Config.DevLogin, which main.go only
+// ever sets true from an explicit DEV_LOGIN=1 *and* a localhost BaseURL)
+// does. Reuses UpsertUser/issueSession exactly like a real provider
+// callback, including the ADMIN_EMAIL bootstrap, so everything downstream
+// of "how did this session get created" is exercised for real, not faked.
+func (s *Service) DevLogin(w http.ResponseWriter, r *http.Request, email, name string) (*User, error) {
+	if email == "" {
+		return nil, errors.New("email is required")
+	}
+	if name == "" {
+		name = email
+	}
+	uid, err := s.store.UpsertUser(r.Context(), "dev", email, email, name, "")
+	if err != nil {
+		return nil, fmt.Errorf("save user: %w", err)
+	}
+	if isAdminEmail(s.adminEmail, email) {
+		if err := s.store.SetRole(r.Context(), uid, feature.RoleAdmin); err != nil {
+			return nil, fmt.Errorf("bootstrap admin role: %w", err)
+		}
+	}
+	if err := s.issueSession(w, r.Context(), uid); err != nil {
+		return nil, fmt.Errorf("issue session: %w", err)
+	}
+	return &User{ID: uid, Name: name, Email: email}, nil
+}
+
 func (s *Service) issueSession(w http.ResponseWriter, ctx context.Context, userID int64) error {
 	raw, err := randomToken(32)
 	if err != nil {

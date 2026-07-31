@@ -126,9 +126,21 @@ Decide which mode fits before you point it at a real village.
 `docker compose up -d`. Its port and credentials match `TEST_DATABASE_URL`'s
 own convention below, so the same container backs both the Postgres-backed
 test suite and running the real binary in hosted mode. Copy `.env.example`
-to `.env.local`, point `DATABASE_URL` at that container, register an OAuth
-app with a `localhost` callback URL, and set `ADMIN_EMAIL` to whichever
-account you'll sign in with - see the env var table below for all of it.
+to `.env.local` and point `DATABASE_URL` at that container.
+
+Signing in still needs one identity provider. Either register a real OAuth
+app with a `localhost` callback URL (the same as production, just pointed
+at your machine), or set `DEV_LOGIN=1` to skip OAuth entirely - it adds a
+sign-in box right on the page that takes any email, with no external setup
+at all. `DEV_LOGIN` only ever takes effect when `BASE_URL` is exactly
+`http://localhost...` or `http://127.0.0.1...`, so an accidental copy into a
+real deployment's env is inert rather than a real exposure - see
+`isLocalhost` in `main.go`. Set `ADMIN_EMAIL` to whichever address you'll
+actually sign in with, either way.
+
+Nothing auto-loads `.env.local` for a plain `go build . && ./coc-progress`
+the way `vercel dev` would - `scripts/dev-run.sh` sources it and runs the
+binary in one step.
 
 ### Env vars
 
@@ -140,15 +152,16 @@ account you'll sign in with - see the env var table below for all of it.
 | `GOOGLE_CLIENT_ID` / `_SECRET` | one of GitHub or Google | Google OAuth app credentials |
 | `CRON_SECRET`             | in hosted mode | Bearer token the daily prune cron presents to `/api/cron/prune` |
 | `ADMIN_EMAIL`             | to ever have an admin | Email promoted to the `admin` role on sign-in - see "Roles and feature flags" |
+| `DEV_LOGIN`               | no, local dev only | `1` adds a no-OAuth sign-in box - only takes effect against a `localhost`/`127.0.0.1` `BASE_URL`, ignored otherwise |
 | `PORT`                    | set by Vercel | Overrides `-addr`'s default listen port |
 
 ### Roles and feature flags
 
 Hosted mode has two roles: `user` (everyone, by default) and `admin`. The
 only way to become admin is for `ADMIN_EMAIL` to match the email your OAuth
-provider hands back at sign-in - there is no other bootstrap. From the admin
-board (a new tab in the frontend once you're signed in as one) an admin can
-promote or demote anyone else.
+provider (or, locally, `DEV_LOGIN`) hands back at sign-in - there is no
+other bootstrap. From the admin board (a new tab in the frontend once
+you're signed in as one) an admin can promote or demote anyone else.
 
 Two capabilities are gated by role rather than being open to every account:
 themes and Build Now. Both default to admin-only (`internal/store/postgres/schema.sql`'s

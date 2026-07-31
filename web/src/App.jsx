@@ -4,6 +4,7 @@ import { ThemePicker, useTheme, FEATURE_KEY as THEMES_KEY } from './features/the
 import { FEATURE_KEY as BUILD_NOW_KEY } from './features/build-now/index.js'
 import { AdminBoard } from './features/admin/index.js'
 import { useFeatures } from './useFeatures.js'
+import { DevSignIn } from './DevSignIn.jsx'
 
 const STALE_AFTER_MS = 6 * 3600 * 1000
 const REMIND_AFTER_MS = 24 * 3600 * 1000
@@ -41,7 +42,7 @@ export default function App() {
   const fileInput = useRef(null)
   const now = useNow()
   const { theme, choose: chooseTheme } = useTheme()
-  const { unlocked, user } = useFeatures()
+  const { unlocked, user, devLogin } = useFeatures()
   const isAdmin = user?.role === 'admin'
   const tabs = isAdmin ? [...BASE_TABS, { key: 'admin', label: 'Admin' }] : BASE_TABS
 
@@ -229,6 +230,7 @@ export default function App() {
     return (
       <div className="shell" onDragOver={(e) => (e.preventDefault(), setOver(true))} onDragLeave={() => setOver(false)} onDrop={onDrop}>
         <div className="theme-bar">
+          {devLogin && !user && <DevSignIn />}
           {unlocked.has(THEMES_KEY) && <ThemePicker theme={theme} onChange={chooseTheme} />}
         </div>
         <div className="empty">
@@ -264,6 +266,7 @@ export default function App() {
           {report.gates.builderHall > 0 && <span>BH<b>{report.gates.builderHall}</b></span>}
         </span>
         <span className="top-right">
+          {devLogin && !user && <DevSignIn />}
           <span className="captured">captured {agoText(report.capturedAt, now)}</span>
           {unlocked.has(THEMES_KEY) && <ThemePicker theme={theme} onChange={chooseTheme} />}
           <button className="load" onClick={() => fileInput.current?.click()}>

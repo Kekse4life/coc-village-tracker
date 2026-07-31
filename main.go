@@ -134,10 +134,19 @@ func runHosted(mux *http.ServeMux, cat *catalog.Catalog, dsn string) {
 		os.Getenv("GITHUB_CLIENT_ID"), os.Getenv("GITHUB_CLIENT_SECRET"),
 		os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET"),
 		adminEmail)
-	if len(authSvc.Providers()) == 0 {
-		log.Fatal("hosted mode needs at least one of GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET or GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET set")
+
+	// DEV_LOGIN is never honored against anything but a localhost BaseURL,
+	// so accidentally copying a local .env.local into a real deployment
+	// cannot open this up - it just silently has no effect there instead.
+	devLogin := os.Getenv("DEV_LOGIN") == "1" && isLocalhost(baseURL)
+	if devLogin {
+		log.Print("DEV_LOGIN is enabled: anyone who can reach this server can sign in as any email, including ADMIN_EMAIL. Local development only - never set this against a real BASE_URL.")
 	}
-	log.Printf("hosted mode: sign-in via %v", authSvc.Providers())
+
+	if len(authSvc.Providers()) == 0 && !devLogin {
+		log.Fatal("hosted mode needs at least one of GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET, GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET, or DEV_LOGIN=1 (localhost only) set")
+	}
+	log.Printf("hosted mode: sign-in via %v", append(authSvc.Providers(), devLoginLabel(devLogin)...))
 	if adminEmail == "" {
 		log.Print("ADMIN_EMAIL not set - nobody will be promoted to admin on sign-in")
 	}
@@ -151,7 +160,23 @@ func runHosted(mux *http.ServeMux, cat *catalog.Catalog, dsn string) {
 		Hosted:     true,
 		BaseURL:    baseURL,
 		CronSecret: os.Getenv("CRON_SECRET"),
+		DevLogin:   devLogin,
 	}, mux)
+}
+
+// isLocalhost is deliberately narrow - only the two forms `docker compose`
+// and a plain `go run .` actually produce - rather than trying to recognize
+// every private-network address, since the only job here is refusing to
+// honor DEV_LOGIN against a real deployment's BaseURL.
+func isLocalhost(baseURL string) bool {
+	return strings.HasPrefix(baseURL, "http://localhost") || strings.HasPrefix(baseURL, "http://127.0.0.1")
+}
+
+func devLoginLabel(enabled bool) []string {
+	if enabled {
+		return []string{"dev (local only)"}
+	}
+	return nil
 }
 
 // spa serves static files and falls back to index.html so client-side routes

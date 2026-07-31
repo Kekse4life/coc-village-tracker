@@ -229,7 +229,40 @@ button {
 .theme-bar {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
   padding-top: 24px;
+}
+
+.dev-sign-in {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.dev-sign-in input {
+  font-size: 13px;
+  padding: 5px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.dev-sign-in-btn {
+  font-size: 13px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink);
+}
+
+.dev-sign-in-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* ---------- reminder banner ---------- */

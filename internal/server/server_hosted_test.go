@@ -100,6 +100,58 @@ func hostedMux(pg *postgres.Store) *http.ServeMux {
 	return mux
 }
 
+// hostedMuxWithDevLogin is hostedMux's DevLogin-enabled counterpart, with an
+// adminEmail so promotion-on-sign-in can be exercised through it too.
+func hostedMuxWithDevLogin(pg *postgres.Store, adminEmail string) *http.ServeMux {
+	mux := http.NewServeMux()
+	authSvc := auth.New(pg, "https://coc-progress.example.com", "gh-id", "gh-secret", "", "", adminEmail)
+	New(Config{Catalog: testCatalog(), Store: pg, Features: pg, Auth: authSvc, Hosted: true, BaseURL: "https://coc-progress.example.com", CronSecret: "test-secret", DevLogin: true}, mux)
+	return mux
+}
+
+// The one point of DevLogin: a real, database-backed session comes out of
+// it exactly like a real OAuth callback would, including the ADMIN_EMAIL
+// bootstrap - nothing downstream needs to know it wasn't a real provider.
+func TestHostedDevLoginCreatesRealSessionAndBootstrapsAdmin(t *testing.T) {
+	pg := hostedTestPool(t)
+	mux := hostedMuxWithDevLogin(pg, "admin@example.com")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/dev?email=admin@example.com&name=Admin", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302, body = %s", rec.Code, rec.Body.String())
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("no session cookie set")
+	}
+
+	meReq := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	meReq.AddCookie(cookies[0])
+	meRec := httptest.NewRecorder()
+	mux.ServeHTTP(meRec, meReq)
+	var got map[string]any
+	json.Unmarshal(meRec.Body.Bytes(), &got)
+	user, _ := got["user"].(map[string]any)
+	if user == nil || user["role"] != "admin" {
+		t.Errorf("user = %+v, want role=admin (ADMIN_EMAIL match)", got["user"])
+	}
+}
+
+// The other point of DevLogin: when it's off (the default), it must not
+// exist as a reachable path at all, not just refuse politely.
+func TestHostedDevLoginNotRegisteredWhenDisabled(t *testing.T) {
+	pg := hostedTestPool(t)
+	mux := hostedMux(pg)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/auth/dev?email=x@example.com", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 when DevLogin is disabled", rec.Code)
+	}
+}
+
 func TestHostedPostThenGetRoundTrips(t *testing.T) {
 	pg := hostedTestPool(t)
 	mux := hostedMux(pg)

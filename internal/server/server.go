@@ -74,6 +74,11 @@ type Config struct {
 	// CronSecret is the bearer token /api/cron/prune requires. Empty
 	// disables the endpoint's ability to do anything even if reachable.
 	CronSecret string
+	// DevLogin registers POST/GET /api/auth/dev, a no-OAuth sign-in
+	// shortcut for local development - see handleDevLogin. main.go only
+	// ever sets this true from an explicit DEV_LOGIN=1 *and* a localhost
+	// BaseURL, never against a real deployment.
+	DevLogin bool
 	// InitialSnapshotPaths, local mode only, seeds the store at startup -
 	// the -snapshot flag, one village per path.
 	InitialSnapshotPaths []string
@@ -118,6 +123,9 @@ func New(cfg Config, mux *http.ServeMux) {
 		mux.HandleFunc("/api/admin/users", s.handleAdminUsers)
 		mux.HandleFunc("/api/auth/logout", s.handleLogout)
 		mux.HandleFunc("/api/cron/prune", s.handlePrune)
+		if cfg.DevLogin {
+			mux.HandleFunc("/api/auth/dev", s.handleDevLogin)
+		}
 		// Both providers are always routed, configured or not: an
 		// unregistered path would otherwise fall through to the SPA
 		// catch-all and return the frontend shell with a 200 instead of a
@@ -790,7 +798,26 @@ func (s *api) handleHistory(w http.ResponseWriter, r *http.Request) {
 
 func (s *api) handleConfig(w http.ResponseWriter, r *http.Request) {
 	s.cors(w, r)
-	writeJSON(w, map[string]any{"hosted": true, "providers": s.cfg.Auth.Providers()})
+	writeJSON(w, map[string]any{"hosted": true, "providers": s.cfg.Auth.Providers(), "devLogin": s.cfg.DevLogin})
+}
+
+// handleDevLogin signs in as an arbitrary email with no OAuth exchange at
+// all - registered only when cfg.DevLogin is true (see Config.DevLogin).
+// Exists so roles, the admin board, and gated features can be exercised
+// locally without registering a real OAuth app first.
+func (s *api) handleDevLogin(w http.ResponseWriter, r *http.Request) {
+	s.cors(w, r)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	email := r.URL.Query().Get("email")
+	name := r.URL.Query().Get("name")
+	if _, err := s.cfg.Auth.DevLogin(w, r, email, name); err != nil {
+		httpError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 func (s *api) handleMe(w http.ResponseWriter, r *http.Request) {
