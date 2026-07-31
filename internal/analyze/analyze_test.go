@@ -308,6 +308,23 @@ func TestElapsedHallTimerRaisesGatesForEverythingElse(t *testing.T) {
 	}
 }
 
+// A village with nothing unnamed, nothing beyond the catalog's max, and
+// nothing left to build must still get [] for Notes, not nil - a nil slice
+// marshals to JSON null, which crashes the frontend's report.notes.map().
+func TestNotesIsEmptySliceNotNilWhenNothingToReport(t *testing.T) {
+	e := &snapshot.Export{
+		Timestamp: 1700000000,
+		Buildings: []snapshot.Item{{Data: 1000001, Lvl: 3, Cnt: 1}}, // Town Hall already at its catalog ceiling
+	}
+	r := Run(e, testCatalog(), e.CapturedAt())
+	if r.Notes == nil {
+		t.Fatal("Notes is nil, want an empty slice")
+	}
+	if len(r.Notes) != 0 {
+		t.Errorf("Notes = %v, want empty - nothing here should have produced a note", r.Notes)
+	}
+}
+
 func TestNewBuildIsFlagged(t *testing.T) {
 	e := &snapshot.Export{
 		Timestamp:  1700000000,

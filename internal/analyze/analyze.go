@@ -848,7 +848,7 @@ func (b *builder) notes() []string {
 	b.report.Catalog.Unnamed = unnamed
 	b.report.Catalog.BeyondMax = beyond
 
-	var out []string
+	out := []string{}
 	if unnamed > 0 {
 		out = append(out, fmt.Sprintf(
 			"%d items are not in the catalog, so they are counted but left out of the percentages. Regenerate the catalog from current game data to name them.", unnamed))

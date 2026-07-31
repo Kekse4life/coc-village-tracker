@@ -230,32 +230,58 @@ export default function App() {
   )
 
   if (!report) {
+    // Lookup and Admin need no village report at all - a signed-in admin
+    // with zero exports uploaded yet must still be able to reach the admin
+    // board, not be stuck behind a dropzone with no way to navigate away
+    // from it. Now/Plan/Progress/History stay out of this nav entirely:
+    // they have nothing to show without a report, unlike these two.
     return (
       <div className="shell" onDragOver={(e) => (e.preventDefault(), setOver(true))} onDragLeave={() => setOver(false)} onDrop={onDrop}>
         <div className="theme-bar">
           {devLogin && !user && <DevSignIn />}
           {unlocked.has(THEMES_KEY) && <ThemePicker theme={theme} onChange={chooseTheme} />}
         </div>
-        <div className="empty">
-          <h1>How maxed is your village, and what lands next?</h1>
-          {hosted ? (
-            <p>
-              Sign in, then drop a village export below. No ads, ever, and nothing here is sold or
-              shared - exports are stored only to show your own history back to you across devices.
-            </p>
-          ) : (
-            <p>
-              Drop a village export below. It is read in memory and never written to disk. Nothing
-              is sent anywhere except the server running on this machine - and there are no ads,
-              ever, in either mode.
-            </p>
+
+        <nav className="tabs top-nav" role="tablist">
+          <button className="tab" role="tab" aria-selected={tab !== 'lookup' && tab !== 'admin'} onClick={() => setTab('now')}>
+            Now
+          </button>
+          <button className="tab" role="tab" aria-selected={tab === 'lookup'} onClick={() => setTab('lookup')}>
+            Lookup
+          </button>
+          {isAdmin && (
+            <button className="tab" role="tab" aria-selected={tab === 'admin'} onClick={() => setTab('admin')}>
+              Admin
+            </button>
           )}
-          <div className="dropzone" data-over={over} onClick={() => fileInput.current?.click()} role="button" tabIndex={0}>
-            {busy ? 'Reading…' : 'Drop the JSON here, or click to choose a file'}
+        </nav>
+
+        {tab === 'lookup' ? (
+          <LookupPage />
+        ) : tab === 'admin' && isAdmin ? (
+          <AdminBoard />
+        ) : (
+          <div className="empty">
+            <h1>How maxed is your village, and what lands next?</h1>
+            {hosted ? (
+              <p>
+                Sign in, then drop a village export below. No ads, ever, and nothing here is sold or
+                shared - exports are stored only to show your own history back to you across devices.
+              </p>
+            ) : (
+              <p>
+                Drop a village export below. It is read in memory and never written to disk. Nothing
+                is sent anywhere except the server running on this machine - and there are no ads,
+                ever, in either mode.
+              </p>
+            )}
+            <div className="dropzone" data-over={over} onClick={() => fileInput.current?.click()} role="button" tabIndex={0}>
+              {busy ? 'Reading…' : 'Drop the JSON here, or click to choose a file'}
+            </div>
+            {error && <p className="error">{error}</p>}
+            {picker}
           </div>
-          {error && <p className="error">{error}</p>}
-          {picker}
-        </div>
+        )}
       </div>
     )
   }
