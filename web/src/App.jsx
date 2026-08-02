@@ -122,11 +122,12 @@ export default function App() {
       .catch(() => setHistory({ enabled: false }))
   }, [tag, report?.capturedAt])
 
-  const send = useCallback(async (file) => {
-    setBusy(true)
-    setError(null)
-    try {
-      const res = await fetch('/api/report', { method: 'POST', body: await file.text() })
+  const send = useCallback(async (fileOrText) => {
+  setBusy(true)
+  setError(null)
+  try {
+    const body = typeof fileOrText === 'string' ? fileOrText : await fileOrText.text()
+    const res = await fetch('/api/report', { method: 'POST', body })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'That export could not be read.')
       applyReport(data)
@@ -218,7 +219,17 @@ export default function App() {
     const file = e.dataTransfer.files?.[0]
     if (file) send(file)
   }
-
+  // Mirrors onDrop: paste a village export straight in instead of saving it
+// to a file first. Skipped while focus is inside an actual text field
+// (Lookup's tag box, dev sign-in) so an ordinary paste there isn't
+// hijacked into an export upload.
+const onPaste = (e) => {
+  if (e.target.closest?.('input, textarea, [contenteditable="true"]')) return
+  const text = e.clipboardData?.getData('text')
+  if (!text) return
+  e.preventDefault()
+  send(text.trim())
+}
   const picker = (
     <input
       ref={fileInput}
@@ -236,7 +247,7 @@ export default function App() {
     // from it. Now/Plan/Progress/History stay out of this nav entirely:
     // they have nothing to show without a report, unlike these two.
     return (
-      <div className="shell" onDragOver={(e) => (e.preventDefault(), setOver(true))} onDragLeave={() => setOver(false)} onDrop={onDrop}>
+      <div className="shell" onDragOver={(e) => (e.preventDefault(), setOver(true))} onDragLeave={() => setOver(false)} onDrop={onDrop} onPaste={onPaste}>
         <div className="theme-bar">
           {devLogin && !user && <DevSignIn />}
           {unlocked.has(THEMES_KEY) && <ThemePicker theme={theme} onChange={chooseTheme} />}
@@ -276,7 +287,7 @@ export default function App() {
               </p>
             )}
             <div className="dropzone" data-over={over} onClick={() => fileInput.current?.click()} role="button" tabIndex={0}>
-              {busy ? 'Reading…' : 'Drop the JSON here, or click to choose a file'}
+             {busy ? 'Reading…' : 'Drop the JSON here, paste it, or click to choose a file'}
             </div>
             {error && <p className="error">{error}</p>}
             {picker}
@@ -292,7 +303,7 @@ export default function App() {
   const landed = report.jobs.filter((j) => new Date(j.finishesAt) <= now).length
 
   return (
-    <div className="shell" onDragOver={(e) => (e.preventDefault(), setOver(true))} onDragLeave={() => setOver(false)} onDrop={onDrop}>
+    <div className="shell" onDragOver={(e) => (e.preventDefault(), setOver(true))} onDragLeave={() => setOver(false)} onDrop={onDrop} onPaste={onPaste}>
       <header className="top">
         {villages.length > 1
           ? <VillagePicker villages={villages} active={tag} onChange={selectVillage} onForget={forgetVillage} />
