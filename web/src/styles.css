@@ -1156,6 +1156,24 @@ button {
   background: var(--accent-soft);
 }
 
+.paste-box {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+.paste-box:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .error {
   font-size: 13px;
   color: var(--accent);

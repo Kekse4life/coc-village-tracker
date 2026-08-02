@@ -286,9 +286,19 @@ const onPaste = (e) => {
                 ever, in either mode.
               </p>
             )}
-            <div className="dropzone" data-over={over} onClick={() => fileInput.current?.click()} role="button" tabIndex={0}>
-             {busy ? 'Reading…' : 'Drop the JSON here, paste it, or click to choose a file'}
+             <div className="dropzone" data-over={over} onClick={() => fileInput.current?.click()} role="button" tabIndex={0}>
+              {busy ? 'Reading…' : 'Drop the JSON here, or click to choose a file'}
             </div>
+            <textarea
+              className="paste-box"
+              placeholder="…or paste the export JSON here"
+              aria-label="Paste village export JSON"
+              onPaste={(e) => {
+                e.preventDefault()
+                const text = e.clipboardData.getData('text')
+                if (text) send(text.trim())
+              }}
+            />
             {error && <p className="error">{error}</p>}
             {picker}
           </div>
